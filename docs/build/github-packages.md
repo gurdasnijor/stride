@@ -2,6 +2,44 @@
 
 This fork can publish the full compatible Stride package set to GitHub Packages from a manually dispatched workflow.
 
+## Quick workflow
+
+The current fork package feed contains the macOS/F# code-only template and matching engine/toolkit packages at `4.4.0-dev`.
+
+One-time setup on a consuming machine:
+
+```bash
+dotnet nuget add source \
+  --username GITHUB_USERNAME \
+  --password GITHUB_PAT_WITH_READ_PACKAGES \
+  --store-password-in-clear-text \
+  --name gurdasnijor-stride \
+  "https://nuget.pkg.github.com/gurdasnijor/index.json"
+```
+
+Create a new F# macOS Stride game:
+
+```bash
+dotnet new install Stride.Templates.CodeOnly::4.4.0-dev
+dotnet new stride-macos-fsharp -n MyFSharpGame
+cd MyFSharpGame
+dotnet run
+```
+
+If that exact template version is already installed, reinstall it with `--force`:
+
+```bash
+dotnet new install Stride.Templates.CodeOnly::4.4.0-dev --force
+```
+
+For an in-repo local development loop that does not go through GitHub Packages:
+
+```bash
+cd /path/to/stride
+dotnet build sources/templates/Stride.Templates.CodeOnly/Stride.Templates.CodeOnly.csproj -p:StrideInstallTemplate=true
+dotnet new stride-macos-fsharp -n MyFSharpGame
+```
+
 ## Publish
 
 Run **Publish GitHub Packages** from GitHub Actions on the branch you want to test.

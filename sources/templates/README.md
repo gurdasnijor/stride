@@ -46,6 +46,8 @@ dotnet new stride-macos-fsharp -n MyFSharpGame
 cd MyFSharpGame && dotnet run
 ```
 
+For consuming the published fork package feed from another checkout or agent, use the GitHub Packages workflow in [docs/build/github-packages.md](../../docs/build/github-packages.md).
+
 Common parameters (template-dependent):
 
 | Parameter | Values | Meaning |
