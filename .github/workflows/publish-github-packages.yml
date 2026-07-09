@@ -115,6 +115,7 @@ jobs:
             --store-password-in-clear-text `
             --name github
 
+          $failed = $false
           Get-ChildItem -Path bin/packages -Filter "*.nupkg" | Sort-Object Name | ForEach-Object {
             echo "Pushing $($_.Name)..."
             dotnet nuget push $_.FullName `
@@ -122,6 +123,13 @@ jobs:
               --api-key "${{ secrets.GITHUB_TOKEN }}" `
               --timeout 1800 `
               --skip-duplicate
+            if ($LASTEXITCODE -ne 0) {
+              echo "::error::Failed to push $($_.Name)"
+              $failed = $true
+            }
+          }
+          if ($failed) {
+            exit 1
           }
 
       - name: Upload package artifact

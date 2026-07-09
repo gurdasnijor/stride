@@ -10,7 +10,6 @@ let game = new Game()
 let start (rootScene: Scene) =
     game.SetupBase3DScene()
     game.AddSkybox() |> ignore
-    game.AddProfiler() |> ignore
 
     let capsule = game.Create3DPrimitive(PrimitiveModelType.Capsule)
     capsule.Transform.Position <- Vector3(0f, 2.5f, 0f)
