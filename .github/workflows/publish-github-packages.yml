@@ -1,0 +1,133 @@
+name: Publish GitHub Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version-suffix:
+        description: Prerelease suffix, no leading dash. Empty uses github-<run>.<attempt>.
+        default: ''
+        type: string
+      platform-linux:
+        description: Include Linux packages
+        default: true
+        type: boolean
+      platform-macos:
+        description: Include macOS packages
+        default: true
+        type: boolean
+      platform-android:
+        description: Include Android packages
+        default: false
+        type: boolean
+      platform-ios:
+        description: Include iOS packages
+        default: false
+        type: boolean
+      upload-artifact:
+        description: Upload the produced .nupkg files as a workflow artifact
+        default: true
+        type: boolean
+
+concurrency:
+  group: publish-github-packages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  Publish:
+    runs-on: windows-2025-vs2026
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve package version suffix
+        id: suffix
+        shell: pwsh
+        run: |
+          $suffix = '${{ inputs.version-suffix }}'.Trim()
+          if ([string]::IsNullOrWhiteSpace($suffix)) {
+            $suffix = 'github-${{ github.run_number }}.${{ github.run_attempt }}'
+          }
+          if ($suffix -notmatch '^[0-9A-Za-z][0-9A-Za-z.-]*$') {
+            echo "::error::Invalid prerelease suffix '$suffix'. Use letters, digits, dots, and hyphens; do not include the leading dash."
+            exit 1
+          }
+          echo "value=$suffix" >> $env:GITHUB_OUTPUT
+          echo "::notice::Publishing Stride packages with prerelease suffix '$suffix'"
+
+      - name: Install Apple Workloads
+        if: ${{ inputs.platform-ios || inputs.platform-macos }}
+        uses: ./.github/actions/stride-workload
+        with:
+          workloads: ${{ inputs.platform-ios && inputs.platform-macos && 'ios macos' || inputs.platform-ios && 'ios' || 'macos' }}
+
+      - name: Build packages
+        shell: pwsh
+        run: |
+          $platforms = "Windows"
+          if ("${{ inputs.platform-linux }}" -eq "true") { $platforms += ";Linux" }
+          if ("${{ inputs.platform-android }}" -eq "true") { $platforms += ";Android" }
+          if ("${{ inputs.platform-ios }}" -eq "true") { $platforms += ";iOS" }
+          if ("${{ inputs.platform-macos }}" -eq "true") { $platforms += ";macOS" }
+          echo "Building for platforms: $platforms"
+          dotnet build build\Stride.build `
+            -t:Package `
+            --no-restore `
+            -m -nr:false `
+            -p:StridePlatforms=$($platforms.Replace(';','%3B')) `
+            -p:StrideGraphicsApiDependentBuildAll=true `
+            -p:StrideSign=false `
+            -p:StrideVersionSuffix=${{ steps.suffix.outputs.value }} `
+            -p:StrideBuildPrerequisitesInstaller=false `
+            -p:StrideNativeBuildMode=Clang
+        env:
+          StrideDisableAssetCompilerExecServerProxy: true
+
+      - name: List packages
+        shell: pwsh
+        run: |
+          $packages = Get-ChildItem -Path bin/packages -Filter "*.nupkg" | Sort-Object Name
+          if (-not $packages) {
+            echo "::error::No packages were produced."
+            exit 1
+          }
+          echo "## Packages" >> $env:GITHUB_STEP_SUMMARY
+          echo '```' >> $env:GITHUB_STEP_SUMMARY
+          $packages | ForEach-Object { echo $_.Name >> $env:GITHUB_STEP_SUMMARY }
+          echo '```' >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Publish to GitHub Packages
+        shell: pwsh
+        run: |
+          $source = "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+          dotnet nuget add source $source `
+            --username "${{ github.actor }}" `
+            --password "${{ secrets.GITHUB_TOKEN }}" `
+            --store-password-in-clear-text `
+            --name github
+
+          Get-ChildItem -Path bin/packages -Filter "*.nupkg" | Sort-Object Name | ForEach-Object {
+            echo "Pushing $($_.Name)..."
+            dotnet nuget push $_.FullName `
+              --source github `
+              --api-key "${{ secrets.GITHUB_TOKEN }}" `
+              --timeout 1800 `
+              --skip-duplicate
+          }
+
+      - name: Upload package artifact
+        if: ${{ inputs.upload-artifact }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-packages-${{ steps.suffix.outputs.value }}
+          path: bin/packages/*.nupkg
+          if-no-files-found: error
