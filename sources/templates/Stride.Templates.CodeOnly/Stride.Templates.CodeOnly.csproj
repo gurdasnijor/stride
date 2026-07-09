@@ -56,7 +56,7 @@
   <Target Name="StrideInstallTemplate" AfterTargets="StrideAutoPackDeploy"
           Condition="'$(StrideInstallTemplate)' == 'true' AND '$(StrideSkipAutoPack)' != 'true'">
     <Exec Command="dotnet new uninstall $(PackageId)" IgnoreExitCode="true" />
-    <Exec Command="dotnet new install &quot;$(PackageOutputPath)$(PackageId).$(PackageVersion).nupkg&quot;" />
+    <Exec Command="dotnet new install --force &quot;$(PackageOutputPath)$(PackageId).$(PackageVersion).nupkg&quot;" />
   </Target>
 
   <ItemGroup>

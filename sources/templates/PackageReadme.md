@@ -19,6 +19,18 @@ cd MyGame && dotnet run --project MyGame.Windows
 
 `dotnet new -l` after installing any of these lists every available `stride-*` short name.
 
+For local fork builds, install same-version template packages with `--force`:
+
+```bash
+dotnet new install --force /path/to/Stride.Templates.CodeOnly.4.4.0-dev.nupkg
+```
+
+Generated code-only projects also need a NuGet source for the matching forked Stride packages until they are published:
+
+```bash
+dotnet nuget add source /path/to/stride/bin/packages --name stride-local
+```
+
 ## Common parameters
 
 | Parameter | Values | Meaning |

@@ -38,10 +38,10 @@ cd MyJumpyJet && dotnet run --project MyJumpyJet.Windows
 
 `dotnet new -l` after the installs lists every available stride-* short name.
 
-Code-only F# starter:
+Code-only F# starter from this fork while incubating:
 
 ```bash
-dotnet new install Stride.Templates.CodeOnly
+dotnet build sources/templates/Stride.Templates.CodeOnly/Stride.Templates.CodeOnly.csproj -p:StrideInstallTemplate=true
 dotnet new stride-macos-fsharp -n MyFSharpGame
 cd MyFSharpGame && dotnet run
 ```
@@ -72,6 +72,18 @@ Opt in to register the freshly-built `.nupkg` with your global `dotnet new` regi
 ```bash
 dotnet build sources/templates/Stride.Templates.Games/Stride.Templates.Games.csproj -p:StrideInstallTemplate=true
 dotnet build sources/templates/Stride.Templates.CodeOnly/Stride.Templates.CodeOnly.csproj -p:StrideInstallTemplate=true
+```
+
+For a one-off local install, use `--force` so repeated same-version builds replace the `dotnet new` package cache instead of failing with `exit code 106`:
+
+```bash
+dotnet new install --force bin/packages/Stride.Templates.CodeOnly.4.4.0-dev.nupkg
+```
+
+The generated `stride-macos-fsharp` project consumes `Stride.CommunityToolkit.CodeOnly` from NuGet. While this fork is incubating, make sure the local package feed is registered once:
+
+```bash
+dotnet nuget add source "$(pwd)/bin/packages" --name stride-local
 ```
 
 For persistent opt-in across builds, drop a `Directory.Build.user.props` in your checkout root (gitignored) with:
