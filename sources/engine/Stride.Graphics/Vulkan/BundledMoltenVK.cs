@@ -10,9 +10,10 @@ using System.Runtime.InteropServices;
 namespace Stride.Graphics;
 
 /// <summary>
-/// macOS Vulkan environment bootstrap: pins our bundled MoltenVK ICD, and rewrites
-/// brew's validation layer manifest with an absolute library_path so the loader can
-/// dlopen it without /opt/homebrew/lib being on dyld's search path.
+/// macOS Vulkan environment bootstrap: keeps SDL and Vortice on the same Vulkan
+/// runtime, pins our bundled MoltenVK ICD, and rewrites brew's validation layer
+/// manifest with an absolute library_path so the loader can dlopen it without
+/// /opt/homebrew/lib being on dyld's search path.
 /// </summary>
 internal static class BundledMoltenVK
 {
@@ -26,32 +27,28 @@ internal static class BundledMoltenVK
     internal static void AutoInit()
     {
         if (!OperatingSystem.IsMacOS()) return;
+        PinSdlVulkanLibrary();
         PinBundledIcd();
         PinBrewValidationLayer();
+    }
+
+    private static void PinSdlVulkanLibrary()
+    {
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SDL_VULKAN_LIBRARY"))) return;
+
+        var library = ResolveMacOSVulkanLibrary();
+        if (library is not null)
+            SetNativeEnv("SDL_VULKAN_LIBRARY", library);
     }
 
     private static void PinBundledIcd()
     {
         if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("VK_DRIVER_FILES"))) return;
 
-        var asmDir = Path.GetDirectoryName(typeof(BundledMoltenVK).Assembly.Location);
-        if (string.IsNullOrEmpty(asmDir)) asmDir = AppContext.BaseDirectory;
-        // Host tool .exes (CompilerApp etc.) get runtimes/ next to the entry-point dll via
-        // transitive copy, not next to Stride.Graphics.dll — search both.
-        var rid = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "osx-arm64" : "osx-x64";
-        var searchDirs = (asmDir == AppContext.BaseDirectory)
-            ? new[] { asmDir }
-            : new[] { asmDir, AppContext.BaseDirectory };
-        // Locate the dylib; we always synthesize the ICD JSON ourselves with an absolute
+        // Locate the packaged dylib; we always synthesize the ICD JSON ourselves with an absolute
         // library_path. The bundled JSON's bare "libvulkan.1.dylib" name dlopens via DYLD
-        // and finds brew's loader instead of our MoltenVK → infinite-recursion / wrong driver.
-        string? dylib = null;
-        foreach (var dir in searchDirs)
-        {
-            foreach (var candidate in new[] { Path.Combine(dir, DylibName), Path.Combine(dir, "runtimes", rid, "native", DylibName) })
-                if (File.Exists(candidate)) { dylib = candidate; break; }
-            if (dylib is not null) break;
-        }
+        // and can resolve to the wrong loader/driver.
+        var dylib = LocatePackagedVulkanLibrary();
         if (dylib is null) return;
 
         var tmpDir = Path.Combine(Path.GetTempPath(), "stride-moltenvk");
@@ -61,7 +58,7 @@ internal static class BundledMoltenVK
         File.WriteAllText(manifest,
             "{ \"file_format_version\": \"1.0.0\", \"ICD\": { \"library_path\": \"" + dylibJson + "\", \"api_version\": \"1.4.0\", \"is_portability_driver\": true } }");
 
-        SetVkEnv("VK_DRIVER_FILES", manifest);
+        SetNativeEnv("VK_DRIVER_FILES", manifest);
     }
 
     private static void PinBrewValidationLayer()
@@ -87,14 +84,58 @@ internal static class BundledMoltenVK
         File.WriteAllText(manifest,
             "{ \"file_format_version\": \"1.2.0\", \"layer\": { \"name\": \"VK_LAYER_KHRONOS_validation\", \"type\": \"GLOBAL\", \"library_path\": \"" + libJson + "\", \"api_version\": \"1.4.0\", \"implementation_version\": \"1\", \"description\": \"Khronos Validation Layer\" } }");
 
-        SetVkEnv("VK_LAYER_PATH", tmpDir);
+        SetNativeEnv("VK_LAYER_PATH", tmpDir);
+    }
+
+    internal static string ResolveMacOSVulkanLibrary()
+    {
+        var packaged = LocatePackagedVulkanLibrary();
+        if (packaged is not null)
+            return packaged;
+
+        foreach (var path in new[]
+        {
+            "/opt/homebrew/lib/libvulkan.1.dylib",
+            "/opt/homebrew/lib/libvulkan.dylib",
+            "/usr/local/lib/libvulkan.1.dylib",
+            "/usr/local/lib/libvulkan.dylib",
+        })
+        {
+            if (File.Exists(path))
+                return path;
+        }
+
+        return DylibName;
+    }
+
+    private static string? LocatePackagedVulkanLibrary()
+    {
+        var asmDir = Path.GetDirectoryName(typeof(BundledMoltenVK).Assembly.Location);
+        if (string.IsNullOrEmpty(asmDir)) asmDir = AppContext.BaseDirectory;
+        // Host tool .exes (CompilerApp etc.) get runtimes/ next to the entry-point dll via
+        // transitive copy, not next to Stride.Graphics.dll; search both.
+        var rid = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "osx-arm64" : "osx-x64";
+        foreach (var dir in asmDir == AppContext.BaseDirectory ? new[] { asmDir } : new[] { asmDir, AppContext.BaseDirectory })
+        {
+            foreach (var candidate in new[]
+            {
+                Path.Combine(dir, DylibName),
+                Path.Combine(dir, "runtimes", rid, "native", DylibName),
+            })
+            {
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+        }
+
+        return null;
     }
 
     private static string JsonEscape(string s) => s.Replace("\\", "/").Replace("\"", "\\\"");
 
     // .NET on POSIX only updates the managed env table; libc getenv (used by the Vulkan
     // loader) still sees the old value. Mirror via setenv so the native loader picks it up.
-    private static void SetVkEnv(string name, string value)
+    private static void SetNativeEnv(string name, string value)
     {
         Environment.SetEnvironmentVariable(name, value);
         PosixSetEnv(name, value, 1);

@@ -5,11 +5,16 @@
     <RootNamespace>MyTemplate.macOS</RootNamespace>
     <OutputPath>..\Bin\macOS\$(Configuration)\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' And '$([MSBuild]::IsOSPlatform(OSX))'">$(NETCoreSdkRuntimeIdentifier)</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
     <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
     <StrideCurrentPackagePath>$(MSBuildThisFileDirectory)..\MyTemplate.Game\MyTemplate.Game.sdpkg</StrideCurrentPackagePath>
     <StridePlatform>macOS</StridePlatform>
+    <StrideGraphicsApi>Vulkan</StrideGraphicsApi>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Stride.Engine" Version="$EngineVersion$" />
     <ProjectReference Include="..\MyTemplate.Game\MyTemplate.Game.csproj" />
   </ItemGroup>
 </Project>

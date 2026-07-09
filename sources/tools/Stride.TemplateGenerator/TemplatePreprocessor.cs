@@ -214,6 +214,11 @@ internal class TemplatePreprocessor
         // platforms parameter at instantiation. No-op when the flag isn't set.
         InjectMissingPlatforms(logger);
 
+        // Platform executable projects compile and launch the app entry point. ProjectReference does
+        // not carry the game library's package closure into the executable deps file, so mirror the
+        // runtime Stride.* package references from MyTemplate.Game into each platform head.
+        PropagateRuntimePackageReferencesToPlatformHeads(logger);
+
         // Generate MyTemplate.sln if absent. Samples typically don't include their sln (input is
         // the inner dir, not the sample root); synthesize one referencing every csproj in staging,
         // including any platform exec project injected above. Per-platform exec csprojs get wrapped
@@ -689,6 +694,62 @@ internal class TemplatePreprocessor
 
         if (injected > 0)
             logger.Info($"Injected {injected} platform folder(s) from {PlatformTemplatePath}");
+    }
+
+    private void PropagateRuntimePackageReferencesToPlatformHeads(ILogger logger)
+    {
+        var gameProject = Path.Combine(OutputDirectory!, "MyTemplate.Game", "MyTemplate.Game.csproj");
+        if (!File.Exists(gameProject))
+            return;
+
+        var gameDoc = XDocument.Load(gameProject, LoadOptions.PreserveWhitespace);
+        var runtimeReferences = gameDoc.Descendants("PackageReference")
+            .Where(x =>
+            {
+                var include = (string?)x.Attribute("Include");
+                return include is not null
+                    && include.StartsWith("Stride.", StringComparison.Ordinal)
+                    && !string.Equals(include, "Stride.AssetCompiler", StringComparison.Ordinal);
+            })
+            .Select(x => new XElement(x))
+            .ToList();
+        if (runtimeReferences.Count == 0)
+            return;
+
+        var updatedProjects = 0;
+        var addedReferences = 0;
+        foreach (var suffix in PlatformActiveSymbol.Keys)
+        {
+            var platformProject = Path.Combine(OutputDirectory!, $"MyTemplate.{suffix}", $"MyTemplate.{suffix}.csproj");
+            if (!File.Exists(platformProject))
+                continue;
+
+            var doc = XDocument.Load(platformProject, LoadOptions.PreserveWhitespace);
+            var existingIncludes = doc.Descendants("PackageReference")
+                .Select(x => (string?)x.Attribute("Include"))
+                .Where(x => x is not null)
+                .ToHashSet(StringComparer.Ordinal);
+
+            var missing = runtimeReferences
+                .Where(x => !existingIncludes.Contains((string)x.Attribute("Include")!))
+                .Select(x => new XElement(x))
+                .ToList();
+            if (missing.Count == 0)
+                continue;
+
+            var itemGroup = new XElement("ItemGroup");
+            foreach (var packageReference in missing)
+                itemGroup.Add(Environment.NewLine + "    ", packageReference);
+            itemGroup.Add(Environment.NewLine + "  ");
+
+            doc.Root?.Add(Environment.NewLine + "  ", itemGroup, Environment.NewLine);
+            File.WriteAllText(platformProject, doc.ToString(SaveOptions.DisableFormatting) + Environment.NewLine);
+            updatedProjects++;
+            addedReferences += missing.Count;
+        }
+
+        if (updatedProjects > 0)
+            logger.Info($"Propagated {addedReferences} runtime package reference(s) into {updatedProjects} platform project(s)");
     }
 
     /// <summary>

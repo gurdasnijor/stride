@@ -44,9 +44,6 @@ Temp/
 /logs/
 bin/
 Bin/
-.nuget-samples/
-.sample-macos-launchers/
-samples/.generated-macos-launchers/
 !bin/packages/
 bin/packages/*
 !bin/packages/.gitkeep

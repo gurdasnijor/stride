@@ -1,31 +1,26 @@
 # Running Samples on macOS
 
-Use `run-macos-sample.sh` from the repository root:
+Use the Stride template pipeline. The template preprocessor injects the macOS
+platform head from `samples/NewGame/NewGame/MyTemplate.macOS`, so samples and
+starters use the same generated project shape as `dotnet new` and GameStudio.
 
 ```sh
-./samples/run-macos-sample.sh list
-./samples/run-macos-sample.sh ParticlesSample
-./samples/run-macos-sample.sh AnimatedModel
+dotnet pack sources/templates/Stride.Templates.Samples/Stride.Templates.Samples.csproj -c Debug
+dotnet new install bin/packages/Stride.Templates.Samples.*.nupkg
+dotnet new stride-particles -n ParticlesSample -o /tmp/stride-samples/ParticlesSample --platforms macos
+dotnet build /tmp/stride-samples/ParticlesSample/ParticlesSample.macOS/ParticlesSample.macOS.csproj -c Debug
 ```
 
-The runner uses Vulkan through MoltenVK. With Apple Silicon Homebrew defaults, it
-sets these automatically when present:
+For starter templates, pack and install `Stride.Templates.Games.Starters` and
+use the starter short name, for example:
 
 ```sh
-SDL_VULKAN_LIBRARY=/opt/homebrew/lib/libvulkan.1.dylib
-VK_DRIVER_FILES=/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json
-VK_ICD_FILENAMES=/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json
+dotnet pack sources/templates/Stride.Templates.Games.Starters/Stride.Templates.Games.Starters.csproj -c Debug
+dotnet new install bin/packages/Stride.Templates.Games.Starters.*.nupkg
+dotnet new stride-fps -n FirstPersonShooter -o /tmp/stride-samples/FirstPersonShooter --platforms macos
+dotnet build /tmp/stride-samples/FirstPersonShooter/FirstPersonShooter.macOS/FirstPersonShooter.macOS.csproj -c Debug
 ```
 
-Useful options:
-
-```sh
-BUILD_ONLY=true ./samples/run-macos-sample.sh SimpleAudio
-SKIP_BUILD=true ./samples/run-macos-sample.sh SimpleAudio
-SHOW_BUILD_WARNINGS=true ./samples/run-macos-sample.sh SimpleAudio
-```
-
-Checked-in `.macOS` launcher projects are used directly. For Windows-only samples,
-the runner creates a temporary launcher under `samples/.generated-macos-launchers/`
-and keeps the sample output under the sample's normal `Bin/macOS/<Configuration>/`
-folder.
+Generated macOS projects build with `StridePlatform=macOS` and
+`StrideGraphicsApi=Vulkan`. Runtime Vulkan/MoltenVK assets come from the Stride
+packages, not from a system-wide Vulkan install.

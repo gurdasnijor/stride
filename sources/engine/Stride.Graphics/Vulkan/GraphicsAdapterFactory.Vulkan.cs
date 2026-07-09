@@ -3,7 +3,6 @@
 #if STRIDE_GRAPHICS_API_VULKAN
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Runtime.InteropServices;
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
@@ -24,15 +23,14 @@ namespace Stride.Graphics
         /// </summary>
         internal static unsafe void InitializeInternal()
         {
-            // On macOS, pass an explicit Vulkan library path to Vortice. Prefer the LunarG loader
-            // when one is installed (e.g. via 'brew install vulkan-loader') because only the loader
-            // chains validation layers — bundled MoltenVK alone is an ICD and ignores VK_LAYER_*.
-            // If no loader is available, fall back to the bundled MoltenVK at runtimes/<rid>/native/.
+            // On macOS, pass the same explicit Vulkan library path to Vortice that SDL uses
+            // when creating the window surface. Prefer Stride's packaged runtime and fall back
+            // to a system loader only if no packaged runtime is available.
             // On iOS, MoltenVK is statically linked into the app binary: dlopen the executable itself,
             // which exports vkGetInstanceProcAddr (see Stride.Core.NativeLibraries.targets).
             string vkLibraryName = Platform.Type switch
             {
-                PlatformType.macOS => ResolveMacOSVulkanLibrary(),
+                PlatformType.macOS => BundledMoltenVK.ResolveMacOSVulkanLibrary(),
                 PlatformType.iOS => Environment.ProcessPath,
                 _ => null,
             };
@@ -71,41 +69,6 @@ namespace Stride.Graphics
             adapters = adapterList.ToArray();
 
             staticCollector.Add(new AnonymousDisposable(Cleanup));
-        }
-
-        // Stride ships MoltenVK bundled but loads it as a flat ICD (libvulkan.1.dylib renamed). That
-        // skips the LunarG loader, which means validation layers, layer-injected debug callbacks
-        // and VK_LAYER_* env vars are all ignored. When a real Vulkan loader is installed (brew's
-        // vulkan-loader puts libvulkan.dylib at /opt/homebrew/lib), use it instead so the layer
-        // chain works. The loader finds MoltenVK as an ICD via VK_DRIVER_FILES / VK_ICD_FILENAMES.
-        private static string ResolveMacOSVulkanLibrary()
-        {
-            foreach (var path in new[]
-            {
-                "/opt/homebrew/lib/libvulkan.1.dylib",
-                "/opt/homebrew/lib/libvulkan.dylib",
-                "/usr/local/lib/libvulkan.1.dylib",
-                "/usr/local/lib/libvulkan.dylib",
-            })
-            {
-                if (File.Exists(path))
-                    return path;
-            }
-
-            // Fall back to bundled MoltenVK shipped at runtimes/<rid>/native/. The assembly may sit
-            // in a per-API subfolder (multi-graphics-API hosts) while natives stay at the app base.
-            var ownerDir = Path.GetDirectoryName(typeof(GraphicsAdapterFactory).Assembly.Location) ?? string.Empty;
-            var arch = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "arm64" : "x64";
-            foreach (var dir in new[] { ownerDir, AppContext.BaseDirectory })
-            {
-                var bundled = Path.Combine(dir, "runtimes", $"osx-{arch}", "native", "libvulkan.1.dylib");
-                if (File.Exists(bundled))
-                    return bundled;
-            }
-
-            // Final fallback: bare name (lets dyld resolve), preserving prior behavior on hosts
-            // where neither location applies.
-            return "libvulkan.1.dylib";
         }
 
         private static void Cleanup()

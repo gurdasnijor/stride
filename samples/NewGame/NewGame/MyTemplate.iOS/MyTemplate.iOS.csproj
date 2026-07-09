@@ -21,6 +21,7 @@
     <PublishAot>true</PublishAot>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Stride.Engine" Version="$EngineVersion$" />
     <ProjectReference Include="..\MyTemplate.Game\MyTemplate.Game.csproj" />
   </ItemGroup>
 </Project>
