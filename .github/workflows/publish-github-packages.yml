@@ -88,11 +88,18 @@ jobs:
             echo "::error::At least one platform must be selected."
             exit 1
           }
+          $packageTarget = "Package"
+          $maxCpuCount = "-m"
+          if ("${{ inputs.platform-windows }}" -ne "true") {
+            $packageTarget = "CodeOnlyPackages"
+            $maxCpuCount = "-m:1"
+          }
           echo "Building for platforms: $platforms"
+          echo "Package target: $packageTarget"
           dotnet build build\Stride.build `
-            -t:Package `
+            -t:$packageTarget `
             --no-restore `
-            -m -nr:false `
+            $maxCpuCount -nr:false `
             -p:StridePlatforms=$($platforms.Replace(';','%3B')) `
             -p:StrideGraphicsApiDependentBuildAll=true `
             -p:StrideSign=false `
