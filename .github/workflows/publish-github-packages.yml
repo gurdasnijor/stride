@@ -1,10 +1,14 @@
 name: Publish GitHub Packages
 
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
   workflow_dispatch:
     inputs:
       version-suffix:
-        description: Prerelease suffix, no leading dash. Empty uses github-<run>.<attempt>.
+        description: Prerelease suffix, no leading dash. Empty uses macos-stabilize-<sha>.
         default: ''
         type: string
       platform-windows:
@@ -38,6 +42,7 @@ concurrency:
 
 jobs:
   Publish:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: windows-2025-vs2026
     permissions:
       contents: read
@@ -45,6 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
           lfs: true
           fetch-depth: 0
           fetch-tags: true
@@ -57,9 +63,14 @@ jobs:
         id: suffix
         shell: pwsh
         run: |
-          $suffix = '${{ inputs.version-suffix }}'.Trim()
+          $suffix = '${{ github.event_name == 'workflow_dispatch' && inputs.version-suffix || '' }}'.Trim()
           if ([string]::IsNullOrWhiteSpace($suffix)) {
-            $suffix = 'github-${{ github.run_number }}.${{ github.run_attempt }}'
+            $headSha = '${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}'
+            if ([string]::IsNullOrWhiteSpace($headSha) -or $headSha.Length -lt 9) {
+              echo "::error::Unable to resolve commit SHA for package suffix."
+              exit 1
+            }
+            $suffix = "macos-stabilize-$($headSha.Substring(0, 9))"
           }
           if ($suffix -notmatch '^[0-9A-Za-z][0-9A-Za-z.-]*$') {
             echo "::error::Invalid prerelease suffix '$suffix'. Use letters, digits, dots, and hyphens; do not include the leading dash."
@@ -69,20 +80,27 @@ jobs:
           echo "::notice::Publishing Stride packages with prerelease suffix '$suffix'"
 
       - name: Install Apple Workloads
-        if: ${{ inputs.platform-ios || inputs.platform-macos }}
+        if: ${{ github.event_name == 'workflow_run' || inputs.platform-ios || inputs.platform-macos }}
         uses: ./.github/actions/stride-workload
         with:
-          workloads: ${{ inputs.platform-ios && inputs.platform-macos && 'ios macos' || inputs.platform-ios && 'ios' || 'macos' }}
+          workloads: ${{ github.event_name == 'workflow_run' && 'macos' || (inputs.platform-ios && inputs.platform-macos && 'ios macos' || inputs.platform-ios && 'ios' || 'macos') }}
 
       - name: Build packages
         shell: pwsh
         run: |
+          $isDispatch = '${{ github.event_name }}' -eq 'workflow_dispatch'
+          $platformWindows = $isDispatch -and '${{ inputs.platform-windows }}' -eq 'true'
+          $platformLinux = (-not $isDispatch) -or '${{ inputs.platform-linux }}' -eq 'true'
+          $platformMacOS = (-not $isDispatch) -or '${{ inputs.platform-macos }}' -eq 'true'
+          $platformAndroid = $isDispatch -and '${{ inputs.platform-android }}' -eq 'true'
+          $platformIOS = $isDispatch -and '${{ inputs.platform-ios }}' -eq 'true'
+
           $platforms = @()
-          if ("${{ inputs.platform-windows }}" -eq "true") { $platforms += "Windows" }
-          if ("${{ inputs.platform-linux }}" -eq "true") { $platforms += "Linux" }
-          if ("${{ inputs.platform-android }}" -eq "true") { $platforms += "Android" }
-          if ("${{ inputs.platform-ios }}" -eq "true") { $platforms += "iOS" }
-          if ("${{ inputs.platform-macos }}" -eq "true") { $platforms += "macOS" }
+          if ($platformWindows) { $platforms += "Windows" }
+          if ($platformLinux) { $platforms += "Linux" }
+          if ($platformAndroid) { $platforms += "Android" }
+          if ($platformIOS) { $platforms += "iOS" }
+          if ($platformMacOS) { $platforms += "macOS" }
           $platforms = $platforms -join ";"
           if ([string]::IsNullOrWhiteSpace($platforms)) {
             echo "::error::At least one platform must be selected."
@@ -90,7 +108,7 @@ jobs:
           }
           $packageTarget = "Package"
           $maxCpuCount = "-m"
-          if ("${{ inputs.platform-windows }}" -ne "true") {
+          if (-not $platformWindows) {
             $packageTarget = "CodeOnlyPackages"
             $maxCpuCount = "-m:1"
           }
@@ -230,7 +248,7 @@ jobs:
           }
 
       - name: Upload package artifact
-        if: ${{ inputs.upload-artifact }}
+        if: ${{ github.event_name == 'workflow_run' || inputs.upload-artifact }}
         uses: actions/upload-artifact@v4
         with:
           name: github-packages-${{ steps.suffix.outputs.value }}
